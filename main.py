@@ -1,4 +1,3 @@
-# app.py - DEFINITIVE VERSION
 import os
 import json
 import uuid
@@ -337,4 +336,4 @@ def get_comments():
 if __name__ == '__main__':
     os.makedirs(DB_FOLDER, exist_ok=True)
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    app.run(host='0.0.0.0', port=5000, debug=True
+    app.run(host='0.0.0.0', port=5000, debug=True)
