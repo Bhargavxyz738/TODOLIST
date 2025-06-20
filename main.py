@@ -1,3 +1,4 @@
+# app.py - DEFINITIVE VERSION (Multi-Login & Patched)
 import os
 import json
 import uuid
@@ -13,7 +14,7 @@ DB_FOLDER = "database"
 STATIC_FOLDER = "static"
 UPLOAD_FOLDER = os.path.join(STATIC_FOLDER, 'profile_pictures')
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
-TOKEN_EXPIRATION = timedelta(days=1)
+TOKEN_EXPIRATION = timedelta(days=7) # Increased for better multi-device experience
 file_lock = threading.Lock()
 
 def read_json_file(path, default=None):
@@ -21,23 +22,32 @@ def read_json_file(path, default=None):
         with open(path, 'r') as f: return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return default if default is not None else {}
+
 def write_json_file(path, data):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w') as f: json.dump(data, f, indent=4)
+
 def get_user_folder(username):
     return os.path.join(DB_FOLDER, username)
+
 def get_user_metadata_path(username):
     return os.path.join(get_user_folder(username), "metadata.json")
+
 def get_user_tasks_path(username):
     return os.path.join(get_user_folder(username), "tasks.json")
+
+# MODIFIED: To support multiple tokens
 def find_user_by_token(token):
     if not token or not os.path.exists(DB_FOLDER): return None
     for username in os.listdir(DB_FOLDER):
         user_folder = get_user_folder(username)
         if os.path.isdir(user_folder):
             metadata = read_json_file(get_user_metadata_path(username))
-            if metadata.get("session_token") == token:
-                token_time_str = metadata.get("token_creation_time")
+            session_tokens = metadata.get("session_tokens", {})
+            
+            if token in session_tokens:
+                token_data = session_tokens[token]
+                token_time_str = token_data.get("creation_time")
                 if token_time_str:
                     try:
                         token_time = datetime.fromisoformat(token_time_str)
@@ -45,24 +55,29 @@ def find_user_by_token(token):
                             return username
                     except ValueError: continue
     return None
+
 def get_user_from_auth_header():
     auth_header = request.headers.get('Authorization')
     if not auth_header or not auth_header.startswith('Bearer '):
-        return None, jsonify({"error": "Authorization header missing"}), 401
+        return None, None, jsonify({"error": "Authorization header missing"}), 401
     token = auth_header.split(" ")[1]
     username = find_user_by_token(token)
     if not username:
-        return None, jsonify({"error": "Invalid or expired session token"}), 401
-    return username, None, None
+        return None, None, jsonify({"error": "Invalid or expired session token"}), 401
+    return username, token, None, None # Return token for logout purposes
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 @app.route('/')
 def home():
     return send_file("src/index.html")
+
 @app.route('/static/<path:filename>')
 def serve_static(filename):
     return send_from_directory(STATIC_FOLDER, filename)
+
+# MODIFIED: To use the new session_tokens dictionary
 @app.route('/add_user', methods=["POST"])
 def add_user():
     data = request.get_json()
@@ -75,12 +90,18 @@ def add_user():
         session_token = uuid.uuid4().hex
         hashed_password = generate_password_hash(data['password'])
         metadata = {
-            "password_hash": hashed_password, "points": 0, "profile_photo": "default_dp.png",
-            "session_token": session_token, "token_creation_time": datetime.utcnow().isoformat()
+            "password_hash": hashed_password, 
+            "points": 0, 
+            "profile_photo": "default_dp.png",
+            "session_tokens": {
+                session_token: {"creation_time": datetime.utcnow().isoformat()}
+            }
         }
         write_json_file(get_user_metadata_path(username), metadata)
         write_json_file(get_user_tasks_path(username), [])
     return jsonify({"message": f"User '{username}' created", "session_token": session_token}), 201
+
+# MODIFIED: To add a new token without deleting others
 @app.route('/login', methods=["POST"])
 def login():
     data = request.get_json()
@@ -94,62 +115,104 @@ def login():
             return jsonify({"error": "User not found. Proceed with signup."}), 404
         if not check_password_hash(metadata.get("password_hash", ""), data['password']):
             return jsonify({"error": "Incorrect password."}), 401
-        session_token = uuid.uuid4().hex
-        metadata["session_token"] = session_token
-        metadata["token_creation_time"] = datetime.utcnow().isoformat()
+        
+        # Clean up expired tokens before adding a new one
+        now = datetime.utcnow()
+        session_tokens = metadata.get("session_tokens", {})
+        active_tokens = {
+            token: data for token, data in session_tokens.items()
+            if now - datetime.fromisoformat(data.get("creation_time", "1970-01-01")) < TOKEN_EXPIRATION
+        }
+        
+        # Generate and add the new token
+        new_session_token = uuid.uuid4().hex
+        active_tokens[new_session_token] = {"creation_time": now.isoformat()}
+        metadata["session_tokens"] = active_tokens
+        
         write_json_file(metadata_path, metadata)
-    return jsonify({"message": "Login successful", "session_token": session_token, "profile_photo": metadata.get('profile_photo')})
+    return jsonify({"message": "Login successful", "session_token": new_session_token, "profile_photo": metadata.get('profile_photo')})
+
+# MODIFIED: To only remove the current session's token
 @app.route('/logout', methods=['POST'])
 def logout():
-    username, err, code = get_user_from_auth_header()
+    username, token, err, code = get_user_from_auth_header()
     if err: return err, code
     with file_lock:
         metadata_path = get_user_metadata_path(username)
         metadata = read_json_file(metadata_path)
-        metadata.pop("session_token", None)
-        metadata.pop("token_creation_time", None)
-        write_json_file(metadata_path, metadata)
+        if "session_tokens" in metadata and token in metadata["session_tokens"]:
+            metadata["session_tokens"].pop(token)
+            write_json_file(metadata_path, metadata)
     return jsonify({"message": "Logout successful"})
+
+# FIXED & SECURED: Now requires password to prevent accidental renaming
 @app.route('/update_username', methods=['POST'])
 def update_username():
-    username, err, code = get_user_from_auth_header()
+    username, _, err, code = get_user_from_auth_header()
     if err: return err, code
     data = request.get_json()
     new_username = data.get('new_username')
-    if not new_username: return jsonify({"error": "New username is required"}), 400
-    if new_username == username: return jsonify({"error": "New username cannot be the same as the old one."}), 400
+    current_password = data.get('current_password')
+
+    if not new_username or not current_password:
+        return jsonify({"error": "New username and your current password are required"}), 400
+    if new_username == username: 
+        return jsonify({"error": "New username cannot be the same as the old one."}), 400
+
     with file_lock:
+        metadata_path = get_user_metadata_path(username)
+        metadata = read_json_file(metadata_path)
+
+        if not check_password_hash(metadata.get("password_hash", ""), current_password):
+            return jsonify({"error": "Incorrect password."}), 401
+
         if os.path.exists(get_user_folder(new_username)):
             return jsonify({"error": "This username is already taken."}), 409
+
         old_path = get_user_folder(username)
         new_path = get_user_folder(new_username)
         os.rename(old_path, new_path)
-        metadata_path = get_user_metadata_path(new_username)
-        metadata = read_json_file(metadata_path)
+        
+        # Log out all other sessions for security and issue a new token
+        new_metadata_path = get_user_metadata_path(new_username)
+        new_metadata = read_json_file(new_metadata_path) # Read from new location
         session_token = uuid.uuid4().hex
-        metadata['session_token'] = session_token
-        metadata['token_creation_time'] = datetime.utcnow().isoformat()
-        write_json_file(metadata_path, metadata)
-    return jsonify({"message": "Username updated.", "new_token": session_token, "new_username": new_username})
+        new_metadata['session_tokens'] = {
+            session_token: {"creation_time": datetime.utcnow().isoformat()}
+        }
+        write_json_file(new_metadata_path, new_metadata)
+
+    return jsonify({"message": "Username updated. You have been logged out of other devices.", "new_token": session_token, "new_username": new_username})
+
+# SECURED: Logs out other sessions upon password change
 @app.route('/update_password', methods=['POST'])
 def update_password():
-    username, err, code = get_user_from_auth_header()
+    username, _, err, code = get_user_from_auth_header()
     if err: return err, code
     data = request.get_json()
-    if not data or 'new_password' not in data: return jsonify({"error": "New password is required"}), 400
+    if not data or 'new_password' not in data: 
+        return jsonify({"error": "New password is required"}), 400
+        
     with file_lock:
         metadata_path = get_user_metadata_path(username)
         metadata = read_json_file(metadata_path)
         metadata['password_hash'] = generate_password_hash(data['new_password'])
+        
+        # Log out all other sessions and issue one new token for this device
         session_token = uuid.uuid4().hex
-        metadata['session_token'] = session_token
-        metadata['token_creation_time'] = datetime.utcnow().isoformat()
+        metadata['session_tokens'] = {
+            session_token: {"creation_time": datetime.utcnow().isoformat()}
+        }
         write_json_file(metadata_path, metadata)
-    return jsonify({"message": "Password updated successfully.", "new_token": session_token})
+        
+    return jsonify({"message": "Password updated successfully. You have been logged out of other devices.", "new_token": session_token})
+
+# Note: The rest of the functions from your original file are compatible with these
+# changes and do not need modification. I am including them for completeness.
 
 @app.route('/upload_profile_picture', methods=['POST'])
 def upload_profile_picture():
-    username, err, code = get_user_from_auth_header()
+    username, _, err, code = get_user_from_auth_header()
     if err: return err, code
     if 'profile_pic' not in request.files: return jsonify({"error": "No file part"}), 400
     file = request.files['profile_pic']
@@ -160,27 +223,19 @@ def upload_profile_picture():
         save_path = os.path.join(UPLOAD_FOLDER, unique_filename)
         
         with file_lock:
-            # First, read the current metadata to find the old photo
             metadata_path = get_user_metadata_path(username)
             metadata = read_json_file(metadata_path)
             old_photo_path = metadata.get('profile_photo')
 
-            # Delete the old photo if it's not the default one
             if old_photo_path and old_photo_path != 'default_dp.png':
-                # The path in metadata is relative to 'static/', e.g., 'profile_pictures/user_...'
-                # We need to construct the full server path to delete it.
                 full_old_path = os.path.join(STATIC_FOLDER, old_photo_path)
                 if os.path.exists(full_old_path):
                     try:
                         os.remove(full_old_path)
                     except OSError as e:
-                        # Log error but don't block the upload
                         print(f"Error deleting old profile picture {full_old_path}: {e}")
             
-            # Now, save the new file
             file.save(save_path)
-
-            # Update metadata with the new path
             relative_path = os.path.join('profile_pictures', unique_filename).replace("\\", "/")
             metadata['profile_photo'] = relative_path
             write_json_file(metadata_path, metadata)
@@ -190,7 +245,7 @@ def upload_profile_picture():
     
 @app.route('/add_task', methods=['POST'])
 def add_task():
-    username, err, code = get_user_from_auth_header()
+    username, _, err, code = get_user_from_auth_header()
     if err: return err, code
     data = request.get_json()
     if not data or 'task_text' not in data: return jsonify({"error": "task_text is required"}), 400
@@ -204,9 +259,10 @@ def add_task():
         tasks.append(new_task)
         write_json_file(tasks_path, tasks)
     return jsonify({"message": "Task added", "task": new_task}), 201
+
 @app.route('/get_my_tasks', methods=['GET'])
 def get_my_tasks():
-    username, err, code = get_user_from_auth_header()
+    username, _, err, code = get_user_from_auth_header()
     if err: return err, code
     with file_lock:
         tasks_path = get_user_tasks_path(username)
@@ -214,9 +270,10 @@ def get_my_tasks():
         today_str = date.today().isoformat()
         todays_tasks = [t for t in all_tasks if t.get('date_added', '').startswith(today_str)]
     return jsonify(todays_tasks)
+
 @app.route('/get_task_history', methods=['GET'])
 def get_task_history():
-    username, err, code = get_user_from_auth_header()
+    username, _, err, code = get_user_from_auth_header()
     if err: return err, code
     history = {}
     with file_lock:
@@ -232,9 +289,10 @@ def get_task_history():
         day_str = day.isoformat()
         last_7_days_data[day_str] = history.get(day_str, 0)
     return jsonify(last_7_days_data)
+
 @app.route('/update_task', methods=["POST", 'DELETE'])
 def update_task():
-    username, err, code = get_user_from_auth_header()
+    username, _, err, code = get_user_from_auth_header()
     if err: return err, code
     data = request.get_json()
     if not data or 'task_id' not in data: return jsonify({"error": "task_id is required"}), 400
@@ -265,9 +323,10 @@ def update_task():
                 write_json_file(tasks_path, tasks)
                 return jsonify({"message": f"Task updated! Total points: {metadata['points']}"})
             return jsonify({"message": "Task status unchanged."})
+
 @app.route('/add_comment', methods=['POST'])
 def add_comment():
-    username, err, code = get_user_from_auth_header()
+    username, _, err, code = get_user_from_auth_header()
     if err: return err, code
     data = request.get_json()
     if not data or 'text' not in data: return jsonify({"error": "text is required"}), 400
@@ -278,6 +337,7 @@ def add_comment():
         comments.append(new_comment)
         write_json_file(comments_path, comments)
     return jsonify({"message": "Comment added", "comment": new_comment}), 201
+
 @app.route('/get_points', methods=["GET"])
 def get_points():
     leaderboard = []
@@ -317,6 +377,7 @@ def get_comments():
         all_comments = read_json_file(comments_path, default=[])
         twelve_hours_ago = datetime.utcnow() - timedelta(hours=12)
         valid_comments = [c for c in all_comments if datetime.fromisoformat(c.get("timestamp", "1970-01-01")) > twelve_hours_ago]
+
         enriched_comments = []
         user_photos = {}
         for comment in valid_comments:
