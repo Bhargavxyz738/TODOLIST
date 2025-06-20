@@ -318,8 +318,6 @@ def get_comments():
         all_comments = read_json_file(comments_path, default=[])
         twelve_hours_ago = datetime.utcnow() - timedelta(hours=12)
         valid_comments = [c for c in all_comments if datetime.fromisoformat(c.get("timestamp", "1970-01-01")) > twelve_hours_ago]
-
-        # MODIFIED: Enrich comments with user profile picture
         enriched_comments = []
         user_photos = {}
         for comment in valid_comments:
@@ -332,7 +330,6 @@ def get_comments():
             enriched_comments.append(comment)
 
         if len(valid_comments) < len(all_comments):
-            # Write back the original non-enriched comments for data integrity
             write_json_file(comments_path, valid_comments)
             
     return jsonify(enriched_comments)
@@ -340,4 +337,4 @@ def get_comments():
 if __name__ == '__main__':
     os.makedirs(DB_FOLDER, exist_ok=True)
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True
