@@ -5,7 +5,7 @@ import threading
 from datetime import datetime, timedelta, date
 from flask import Flask, jsonify, request, send_file, send_from_directory
 from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.utils import secure_filenames
+from werkzeug.utils import secure_filename
 import shutil
 import tempfile
 
