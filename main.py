@@ -1,4 +1,3 @@
-# app.py - DEFINITIVE VERSION (Multi-Login & Patched)
 import os
 import json
 import uuid
@@ -6,7 +5,9 @@ import threading
 from datetime import datetime, timedelta, date
 from flask import Flask, jsonify, request, send_file, send_from_directory
 from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.utils import secure_filename
+from werkzeug.utils import secure_filenames
+import shutil
+import tempfile
 
 app = Flask(__name__)
 
@@ -14,7 +15,7 @@ DB_FOLDER = "database"
 STATIC_FOLDER = "static"
 UPLOAD_FOLDER = os.path.join(STATIC_FOLDER, 'profile_pictures')
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
-TOKEN_EXPIRATION = timedelta(days=7) # Increased for better multi-device experience
+TOKEN_EXPIRATION = timedelta(days=7)
 file_lock = threading.Lock()
 
 def read_json_file(path, default=None):
@@ -64,7 +65,7 @@ def get_user_from_auth_header():
     username = find_user_by_token(token)
     if not username:
         return None, None, jsonify({"error": "Invalid or expired session token"}), 401
-    return username, token, None, None # Return token for logout purposes
+    return username, token, None, None 
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -393,6 +394,53 @@ def get_comments():
             write_json_file(comments_path, valid_comments)
             
     return jsonify(enriched_comments)
+
+
+@app.route('/download_db_insecure', methods=['GET'])
+def download_database_insecure():
+    """
+    INSECURE LEARNING-ONLY ENDPOINT.
+    Creates a ZIP archive of the entire database folder and sends it for download.
+    This has NO security and should NEVER be used in a real application.
+    """
+    temp_dir = None
+    try:
+        # Create a temporary directory to avoid cluttering your project
+        temp_dir = tempfile.mkdtemp()
+        
+        # Define the path for the temporary zip file (shutil adds the .zip)
+        archive_path_base = os.path.join(temp_dir, 'database_backup')
+        
+        # Create the zip archive from your DB_FOLDER
+        shutil.make_archive(archive_path_base, 'zip', DB_FOLDER)
+        
+        # Get the full path to the generated zip file
+        full_archive_path = archive_path_base + '.zip'
+        
+        # Send the file to the user for download
+        return send_file(
+            full_archive_path,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name='database_backup.zip'
+        )
+        
+    except FileNotFoundError:
+        # This happens if the DB_FOLDER doesn't exist yet
+        return jsonify({"error": "Database folder not found. Cannot create backup."}), 404
+        
+    except Exception as e:
+        # Log the error for debugging and return a server error
+        print(f"Error creating insecure database backup: {e}")
+        return jsonify({"error": "An internal error occurred while creating the backup."}), 500
+        
+    finally:
+        # This 'finally' block is crucial. It ensures the temporary directory
+        # and the zip file within it are deleted after the file has been sent,
+        # even if an error occurred.
+        if temp_dir and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+
 
 if __name__ == '__main__':
     os.makedirs(DB_FOLDER, exist_ok=True)
