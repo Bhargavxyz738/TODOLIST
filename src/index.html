@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="A fun productivity competition to help you and your friends stay motivated.">
+    <title>Productivity Competition</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@2.5.0/fonts/remixicon.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/script.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+</head>
+<body>
+    <div id="toast-notification-container"></div>
+    <div id="login-container" class="auth-container">
+        <div class="auth-box">
+            <h2>Welcome</h2>
+            <p>Enter your details to log in or create an account.</p>
+            <form id="login-form">
+                <input type="text" id="username" placeholder="Name" required>
+                <input type="password" id="password" placeholder="Password" required>
+                <button type="submit">Continue</button>
+            </form>
+            <p id="login-message-area" class="message-area"></p>
+        </div>
+    </div>
+    <div id="signup-step2-container" class="auth-container hidden">
+        <div class="auth-box">
+            <h2>Create Your Profile</h2>
+            <p>Choose a profile picture to get started.</p>
+            <form id="signup-step2-form">
+                <img src="/static/default_dp.png" alt="Profile Preview" id="profile-pic-preview">
+                <div id="profile-picture-upload-zone">
+                    <i class="ri-upload-cloud-2-line"></i>
+                    <p>Click to upload or drag & drop</p>
+                </div>
+                <input type="file" id="profile-picture-input" accept="image/*" class="hidden">
+                <button type="submit">Complete Signup</button>
+            </form>
+        </div>
+    </div>
+    <div id="main-app-container" class="hidden">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h3><i class="ri-rocket-line"></i> ProdComp</h3>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="#" id="nav-dashboard" class="nav-link active"><i class="ri-dashboard-line"></i><span>Dashboard</span></a></li>
+                    <li><a href="#" id="nav-tasks" class="nav-link"><i class="ri-list-check-2"></i><span>Tasks</span></a></li>
+                </ul>
+            </nav>
+            <div class="sidebar-footer">
+                <a href="#" id="logout-button"><i class="ri-logout-box-r-line"></i><span>Logout</span></a>
+            </div>
+        </aside>
+        <div class="content-wrapper">
+            <header class="top-bar">
+                <button class="hamburger-menu"><i class="ri-menu-line"></i></button>
+                <div class="points-display">
+                    <i class="ri-star-fill"></i> Points: <span id="user-points">...</span>
+                </div>
+                <div class="top-bar-controls">
+                    <div class="theme-switcher">
+                        <i class="ri-sun-line"></i>
+                        <label class="switch">
+                            <input type="checkbox" id="theme-toggle-checkbox">
+                            <span class="slider"></span>
+                        </label>
+                        <i class="ri-moon-line"></i>
+                    </div>
+                    <div class="profile-dropdown">
+                        <button class="profile-button">
+                            <img src="/static/default_dp.png" alt="P" id="profile-pic-topbar">
+                            <span id="profile-name-topbar">User</span>
+                        </button>
+                        <div class="dropdown-content">
+                            <a href="#" id="edit-profile-btn"><i class="ri-user-settings-line"></i> Edit Profile</a>
+                        </div>
+                    </div>
+                </div>
+            </header>
+            <main class="main-content">
+                <div class="page-content-wrapper">
+                    <div id="dashboard-page">
+                        <section class="comments-section-container">
+                            <h4><i class="ri-chat-3-line"></i> Live Comments</h4>
+                            <div class="comments-section">
+                                <div class="comment-card create-comment">
+                                    <textarea id="new-comment-textarea" placeholder="Post a public comment..."></textarea>
+                                    <button id="post-comment-button">Post</button>
+                                </div>
+                                <div id="comments-container">
+                                    <div class="loading-spinner"></div>
+                                </div>
+                            </div>
+                        </section>
+                        <div class="dashboard-grid">
+                            <section class="leaderboard-container">
+                                <h4><i class="ri-trophy-line"></i> Leaderboard</h4>
+                                <div id="leaderboard-list-wrapper">
+                                    <div class="loading-spinner"></div>
+                                    <ol id="leaderboard-list"></ol>
+                                </div>
+                            </section>
+                            <section class="progress-container">
+                                <h4><i class="ri-line-chart-line"></i> Weekly Progress</h4>
+                                <div id="progress-graph-wrapper">
+                                    <canvas id="progress-graph"></canvas>
+                                    <p id="progress-graph-placeholder" class="hidden">No data is present.</p>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+                    <div id="tasks-page" class="hidden">
+                        <section class="tasks-container">
+                            <h2>Today's To-Do List</h2>
+                            <p>Complete up to 6 tasks. Each task is worth 3 points.</p>
+                            <form id="add-task-form">
+                                <input type="text" id="new-task-input" placeholder="What do you need to do?" required>
+                                <button type="submit"><i class="ri-add-line"></i> Add Task</button>
+                            </form>
+                            <div id="task-list-wrapper">
+                                <div class="loading-spinner"></div>
+                                <ul id="task-list"></ul>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+    <div id="edit-profile-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <button class="close-modal-btn"><i class="ri-close-line"></i></button>
+            <h3>Edit Profile</h3>
+            <form id="edit-profile-form">
+                <img src="/static/default_dp.png" alt="Profile Preview" id="edit-profile-pic-preview">
+                <label for="edit-profile-pic-input" class="file-upload-label">
+                    <i class="ri-camera-line"></i> Change Picture
+                </label>
+                <input type="file" id="edit-profile-pic-input" accept="image/*" class="hidden">
+                <label for="edit-username">New Username</label>
+                <input type="text" id="edit-username" placeholder="Enter new username">
+                <label for="edit-password">New Password</label>
+                <input type="password" id="edit-password" placeholder="Enter new password (optional)">
+                <button type="submit">Save Changes</button>
+            </form>
+            <p id="edit-profile-message-area" class="message-area"></p>
+        </div>
+    </div>
+</body>
+</html>
